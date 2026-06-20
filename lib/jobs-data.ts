@@ -15,10 +15,18 @@ type RawJobRecord = {
 };
 
 type RawJobsPayload = {
+  generated_at?: string;
   jobs: RawJobRecord[];
 };
 
-type DateBucket = "last_24h" | "last_7d" | "last_30d" | "last_90d" | "older" | "undated";
+type DateBucket =
+  | "last_24h"
+  | "last_3d"
+  | "last_7d"
+  | "last_30d"
+  | "last_90d"
+  | "older"
+  | "undated";
 type Category =
   | "engineering"
   | "product"
@@ -93,10 +101,12 @@ type PreparedDataset = {
   jobs: JobListItem[];
   facets: JobsFacets;
   landingPreview: LandingPreviewItem[];
+  generatedAt: string | null;
 };
 
 const DATE_BUCKETS: Array<{ id: DateBucket; label: string }> = [
   { id: "last_24h", label: "last 24h" },
+  { id: "last_3d", label: "last 3 days" },
   { id: "last_7d", label: "last 7 days" },
   { id: "last_30d", label: "last 30 days" },
   { id: "last_90d", label: "last 90 days" },
@@ -215,13 +225,14 @@ function normalizeCountry(location: string, remote: boolean): string {
   return "other";
 }
 
-function toDateBucket(postedAt: string | null): DateBucket {
+function toDateBucket(postedAt: string | null, now = Date.now()): DateBucket {
   if (!postedAt) return "undated";
   const timestamp = Date.parse(postedAt);
   if (Number.isNaN(timestamp)) return "undated";
-  const diffMs = Date.now() - timestamp;
+  const diffMs = now - timestamp;
   const dayMs = 24 * 60 * 60 * 1000;
   if (diffMs <= dayMs) return "last_24h";
+  if (diffMs <= 3 * dayMs) return "last_3d";
   if (diffMs <= 7 * dayMs) return "last_7d";
   if (diffMs <= 30 * dayMs) return "last_30d";
   if (diffMs <= 90 * dayMs) return "last_90d";
@@ -290,6 +301,42 @@ function isSearchMatch(job: JobListItem, query: string): boolean {
 
 let preparedDatasetPromise: Promise<PreparedDataset> | null = null;
 
+export function reloadJobsDataset() {
+  preparedDatasetPromise = null;
+}
+
+function buildFacets(jobs: JobListItem[], now = Date.now()): JobsFacets {
+  const categoryCounts = new Map<string, number>();
+  const jobTypeCounts = new Map<string, number>();
+  const countryCounts = new Map<string, number>();
+  const dateCounts = new Map<string, number>();
+  const stageCounts = new Map<string, number>();
+  const sizeCounts = new Map<string, number>();
+
+  for (const row of jobs) {
+    categoryCounts.set(row.category, (categoryCounts.get(row.category) || 0) + 1);
+    jobTypeCounts.set(row.jobType, (jobTypeCounts.get(row.jobType) || 0) + 1);
+    countryCounts.set(row.country, (countryCounts.get(row.country) || 0) + 1);
+    const bucket = toDateBucket(row.postedAt, now);
+    dateCounts.set(bucket, (dateCounts.get(bucket) || 0) + 1);
+    stageCounts.set(row.companyStage, (stageCounts.get(row.companyStage) || 0) + 1);
+    sizeCounts.set(row.companySize, (sizeCounts.get(row.companySize) || 0) + 1);
+  }
+
+  return {
+    categories: optionsFromCounts(categoryCounts, CATEGORY_ORDER),
+    jobTypes: optionsFromCounts(jobTypeCounts, JOB_TYPE_ORDER),
+    countries: optionsFromCounts(countryCounts),
+    postedDates: optionsFromCounts(
+      dateCounts,
+      DATE_BUCKETS.map((item) => item.id),
+      Object.fromEntries(DATE_BUCKETS.map((item) => [item.id, item.label]))
+    ),
+    stages: optionsFromCounts(stageCounts, STAGE_ORDER),
+    sizes: optionsFromCounts(sizeCounts, SIZE_ORDER),
+  };
+}
+
 async function buildPreparedDataset(): Promise<PreparedDataset> {
   const filePath = path.join(process.cwd(), "public", "jobs-dataset.json");
   const content = await fs.readFile(filePath, "utf8");
@@ -307,7 +354,7 @@ async function buildPreparedDataset(): Promise<PreparedDataset> {
     applyUrl: job.apply_url || "#",
     category: classifyCategory(job.title, job.team),
     country: normalizeCountry(job.location, job.remote),
-    postedBucket: toDateBucket(job.posted_at),
+    postedBucket: "undated",
     companyStage: deriveStage(`${job.summary} ${job.team}`),
     companySize: deriveCompanySize(`${job.summary} ${job.team}`),
   }));
@@ -318,24 +365,9 @@ async function buildPreparedDataset(): Promise<PreparedDataset> {
     return bTime - aTime;
   });
 
-  const categoryCounts = new Map<string, number>();
-  const jobTypeCounts = new Map<string, number>();
-  const countryCounts = new Map<string, number>();
-  const dateCounts = new Map<string, number>();
-  const stageCounts = new Map<string, number>();
-  const sizeCounts = new Map<string, number>();
-
-  for (const row of jobs) {
-    categoryCounts.set(row.category, (categoryCounts.get(row.category) || 0) + 1);
-    jobTypeCounts.set(row.jobType, (jobTypeCounts.get(row.jobType) || 0) + 1);
-    countryCounts.set(row.country, (countryCounts.get(row.country) || 0) + 1);
-    dateCounts.set(row.postedBucket, (dateCounts.get(row.postedBucket) || 0) + 1);
-    stageCounts.set(row.companyStage, (stageCounts.get(row.companyStage) || 0) + 1);
-    sizeCounts.set(row.companySize, (sizeCounts.get(row.companySize) || 0) + 1);
-  }
-
   return {
     jobs,
+    generatedAt: payload.generated_at || null,
     landingPreview: jobs.slice(0, 4).map((job) => ({
       id: job.id,
       company: job.company,
@@ -343,18 +375,7 @@ async function buildPreparedDataset(): Promise<PreparedDataset> {
       location: job.location || "Remote",
       applyUrl: job.applyUrl,
     })),
-    facets: {
-      categories: optionsFromCounts(categoryCounts, CATEGORY_ORDER),
-      jobTypes: optionsFromCounts(jobTypeCounts, JOB_TYPE_ORDER),
-      countries: optionsFromCounts(countryCounts),
-      postedDates: optionsFromCounts(
-        dateCounts,
-        DATE_BUCKETS.map((item) => item.id),
-        Object.fromEntries(DATE_BUCKETS.map((item) => [item.id, item.label]))
-      ),
-      stages: optionsFromCounts(stageCounts, STAGE_ORDER),
-      sizes: optionsFromCounts(sizeCounts, SIZE_ORDER),
-    },
+    facets: buildFacets(jobs),
   };
 }
 
@@ -384,6 +405,7 @@ export async function getLandingJobsPreview() {
 export async function queryJobs(input: JobsQueryInput) {
   const prepared = await getPreparedDataset();
   const query = input.q.trim().toLowerCase();
+  const now = Date.now();
 
   const selectedCategories = new Set(input.categories);
   const selectedJobTypes = new Set(input.jobTypes);
@@ -399,11 +421,18 @@ export async function queryJobs(input: JobsQueryInput) {
     if (selectedCategories.size > 0 && !selectedCategories.has(job.category)) continue;
     if (selectedJobTypes.size > 0 && !selectedJobTypes.has(job.jobType)) continue;
     if (selectedCountries.size > 0 && !selectedCountries.has(job.country)) continue;
-    if (selectedPostedDates.size > 0 && !selectedPostedDates.has(job.postedBucket)) continue;
+    if (
+      selectedPostedDates.size > 0 &&
+      !selectedPostedDates.has(toDateBucket(job.postedAt, now))
+    )
+      continue;
     if (selectedStages.size > 0 && !selectedStages.has(job.companyStage)) continue;
     if (selectedSizes.size > 0 && !selectedSizes.has(job.companySize)) continue;
     if (input.remoteOnly && !job.remote) continue;
-    matched.push(job);
+    matched.push({
+      ...job,
+      postedBucket: toDateBucket(job.postedAt, now),
+    });
   }
 
   const safePageSize = Math.max(1, Math.min(input.pageSize || 40, 100));
@@ -419,6 +448,7 @@ export async function queryJobs(input: JobsQueryInput) {
     pageSize: safePageSize,
     totalPages,
     jobs,
-    facets: prepared.facets,
+    facets: buildFacets(prepared.jobs, now),
+    generatedAt: prepared.generatedAt,
   };
 }

@@ -37,9 +37,15 @@ type JobsApiResponse = {
   totalPages: number;
   jobs: JobListItem[];
   facets: JobsFacets;
+  generatedAt?: string | null;
+  refresh?: {
+    isRunning: boolean;
+    lastCompletedAt: string | null;
+  };
 };
 
 const PAGE_SIZE = 40;
+const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 const EMPTY_FACETS: JobsFacets = {
   categories: [],
@@ -61,6 +67,20 @@ function toAbcLabel(value: string): string {
       return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join("");
+}
+
+function formatRelativeTime(input: string | null): string {
+  if (!input) return "unknown";
+  const parsed = Date.parse(input);
+  if (Number.isNaN(parsed)) return "unknown";
+  const diffMs = Date.now() - parsed;
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+  if (diffMs < minuteMs) return "just now";
+  if (diffMs < hourMs) return `${Math.floor(diffMs / minuteMs)}m ago`;
+  if (diffMs < dayMs) return `${Math.floor(diffMs / hourMs)}h ago`;
+  return `${Math.floor(diffMs / dayMs)}d ago`;
 }
 
 function formatPostedDate(input: string | null): string {
@@ -207,12 +227,20 @@ export default function JobsPage() {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
-  const [selectedDateBuckets, setSelectedDateBuckets] = useState<string[]>([]);
+  const [selectedDateBuckets, setSelectedDateBuckets] = useState<string[]>(["last_3d"]);
   const [selectedStages, setSelectedStages] = useState<string[]>([]);
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   const [remoteOnly, setRemoteOnly] = useState(false);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pollTick, setPollTick] = useState(0);
 
   const deferredSearch = useDeferredValue(search);
+
+  useEffect(() => {
+    const interval = setInterval(() => setPollTick((current) => current + 1), POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -244,6 +272,8 @@ export default function JobsPage() {
         setFacets(payload.facets || EMPTY_FACETS);
         setTotal(payload.total || 0);
         setTotalPages(payload.totalPages || 1);
+        setGeneratedAt(payload.generatedAt || null);
+        setIsRefreshing(Boolean(payload.refresh?.isRunning));
         if (payload.page && payload.page !== page) setPage(payload.page);
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -267,6 +297,7 @@ export default function JobsPage() {
     selectedJobTypes,
     selectedSizes,
     selectedStages,
+    pollTick,
   ]);
 
   function toggleListValue(value: string, setter: Dispatch<SetStateAction<string[]>>) {
@@ -281,7 +312,7 @@ export default function JobsPage() {
     setSelectedCategories([]);
     setSelectedJobTypes([]);
     setSelectedCountries([]);
-    setSelectedDateBuckets([]);
+    setSelectedDateBuckets(["last_3d"]);
     setSelectedStages([]);
     setSelectedSizes([]);
     setRemoteOnly(false);
@@ -295,8 +326,15 @@ export default function JobsPage() {
       <section className="sticky top-0 z-20 border-b border-black/10 bg-[rgba(215,206,198,0.92)] px-5 py-5 backdrop-blur-xl sm:px-8 lg:px-12">
         <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="rounded-full border border-black/22 px-3 py-1 font-mono text-xs uppercase tracking-[0.12em] text-black/55">
-              {total} live roles
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="rounded-full border border-black/22 px-3 py-1 font-mono text-xs uppercase tracking-[0.12em] text-black/55">
+                {total} live roles
+              </div>
+              <div className="rounded-full border border-black/22 px-3 py-1 font-mono text-xs uppercase tracking-[0.12em] text-black/45">
+                {isRefreshing
+                  ? "refreshing jobs..."
+                  : `updated ${formatRelativeTime(generatedAt)}`}
+              </div>
             </div>
 
             <Button

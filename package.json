@@ -10,7 +10,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint app/"
+    "lint": "eslint app/",
+    "ingest": "node scripts/build-jobs-dataset.mjs"
   },
   "dependencies": {
     "@heroui/react": "^2.8.9",

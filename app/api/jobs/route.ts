@@ -1,4 +1,5 @@
 import { queryJobs } from "@/lib/jobs-data";
+import { getRefreshState } from "@/lib/jobs-refresh";
 
 function parseList(value: string | null): string[] {
   if (!value) return [];
@@ -29,5 +30,8 @@ export async function GET(request: Request) {
     remoteOnly: searchParams.get("remoteOnly") === "1",
   });
 
-  return Response.json(result);
+  return Response.json({
+    ...result,
+    refresh: getRefreshState(),
+  });
 }
