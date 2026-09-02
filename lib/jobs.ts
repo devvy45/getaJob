@@ -1,0 +1,240 @@
+import { fallbackJobs } from "../data/jobs";
+
+export type JobCategory =
+  | "Engineering"
+  | "Product"
+  | "Design"
+  | "Growth"
+  | "Marketing"
+  | "HR"
+  | "Operations";
+
+export type Job = {
+  id: string;
+  personName: string;
+  personHeadline: string;
+  company: string;
+  role: string;
+  category: JobCategory;
+  location: string;
+  excerpt: string;
+  postedAt: string;
+  publishedAt: string;
+  expiresAt?: string;
+  sourceUrl: string;
+  initials: string;
+  accent: string;
+  active?: boolean | string;
+};
+
+export const JOB_CATEGORIES: JobCategory[] = [
+  "Engineering",
+  "Product",
+  "Design",
+  "Growth",
+  "Marketing",
+  "HR",
+  "Operations",
+];
+
+const DEFAULT_TTL_DAYS = 10;
+const REVALIDATE_SECONDS = 300;
+
+type RawJob = Partial<Job> & Record<string, unknown>;
+
+function parseDate(value: string): Date | null {
+  const parts = value.trim().split("-");
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  const year = Number(parts[0]);
+  const month = Number(parts[1]) - 1;
+  const day = Number(parts[2]);
+  const date = new Date(year, month, day);
+
+  if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isActiveFlag(value: Job["active"]): boolean {
+  if (value === undefined || value === null || value === "") {
+    return true;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized !== "false" && normalized !== "no" && normalized !== "0";
+}
+
+function resolveExpiryDate(job: Job): Date | null {
+  if (job.expiresAt) {
+    return parseDate(job.expiresAt);
+  }
+
+  if (!job.publishedAt) {
+    return null;
+  }
+
+  const publishedAt = parseDate(job.publishedAt);
+  if (!publishedAt) {
+    return null;
+  }
+
+  const expiry = new Date(publishedAt);
+  expiry.setDate(expiry.getDate() + DEFAULT_TTL_DAYS);
+  return expiry;
+}
+
+export function isJobActive(job: Job, now = new Date()): boolean {
+  if (!isActiveFlag(job.active)) {
+    return false;
+  }
+
+  const expiryDate = resolveExpiryDate(job);
+  if (!expiryDate) {
+    return true;
+  }
+
+  return startOfDay(expiryDate).getTime() >= startOfDay(now).getTime();
+}
+
+export function filterActiveJobs(jobs: Job[], now = new Date()): Job[] {
+  return jobs.filter((job) => isJobActive(job, now));
+}
+
+export function formatPostedAt(publishedAt: string, now = new Date()): string {
+  const publishedDate = parseDate(publishedAt);
+  if (!publishedDate) {
+    return "Recently";
+  }
+
+  const days = Math.max(
+    0,
+    Math.floor((startOfDay(now).getTime() - startOfDay(publishedDate).getTime()) / 86_400_000),
+  );
+
+  if (days === 0) {
+    return "Today";
+  }
+  if (days === 1) {
+    return "1d ago";
+  }
+  return `${days}d ago`;
+}
+
+function normalizeCategory(value: unknown): JobCategory {
+  const category = String(value ?? "Engineering").trim();
+  if ((JOB_CATEGORIES as string[]).includes(category)) {
+    return category as JobCategory;
+  }
+  return "Engineering";
+}
+
+export function normalizeJob(raw: RawJob): Job {
+  return {
+    id: String(raw.id ?? "").trim(),
+    personName: String(raw.personName ?? raw.person_name ?? "").trim(),
+    personHeadline: String(raw.personHeadline ?? raw.person_headline ?? "").trim(),
+    company: String(raw.company ?? "").trim(),
+    role: String(raw.role ?? "").trim(),
+    category: normalizeCategory(raw.category),
+    location: String(raw.location ?? "").trim(),
+    excerpt: String(raw.excerpt ?? "").trim(),
+    postedAt: String(raw.postedAt ?? raw.posted_at ?? "").trim(),
+    publishedAt: String(raw.publishedAt ?? raw.published_at ?? "").trim(),
+    expiresAt: String(raw.expiresAt ?? raw.expires_at ?? "").trim() || undefined,
+    sourceUrl: String(raw.sourceUrl ?? raw.source_url ?? "#").trim() || "#",
+    initials: String(raw.initials ?? "").trim(),
+    accent: String(raw.accent ?? "#b56a52").trim() || "#b56a52",
+    active: raw.active,
+  };
+}
+
+export function enrichJob(job: Job, now = new Date()): Job {
+  const expiresAt =
+    job.expiresAt ??
+    (() => {
+      const publishedAt = parseDate(job.publishedAt);
+      if (!publishedAt) {
+        return undefined;
+      }
+      const expiry = new Date(publishedAt);
+      expiry.setDate(expiry.getDate() + DEFAULT_TTL_DAYS);
+      return formatIsoDate(expiry);
+    })();
+
+  return {
+    ...job,
+    expiresAt,
+    postedAt: job.postedAt || formatPostedAt(job.publishedAt, now),
+  };
+}
+
+function sortJobs(jobs: Job[]): Job[] {
+  return [...jobs].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+}
+
+export function pickFeaturedJobs(jobs: Job[], now = new Date()): Job[] {
+  const activeJobs = sortJobs(filterActiveJobs(jobs, now));
+  if (activeJobs.length === 0) {
+    return [];
+  }
+
+  const shuffled = [...activeJobs];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  const maxCount = Math.min(5, shuffled.length);
+  const minCount = Math.min(4, maxCount);
+  const count =
+    maxCount <= minCount
+      ? maxCount
+      : minCount + Math.floor(Math.random() * (maxCount - minCount + 1));
+
+  return shuffled.slice(0, count);
+}
+
+export async function fetchJobs(now = new Date()): Promise<Job[]> {
+  const apiUrl = process.env.JOBS_API_URL?.trim();
+
+  if (!apiUrl) {
+    return sortJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+  }
+
+  try {
+    const response = await fetch(apiUrl, {
+      next: { revalidate: REVALIDATE_SECONDS },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Jobs API responded with ${response.status}`);
+    }
+
+    const payload = (await response.json()) as { jobs?: RawJob[] };
+    const jobs = (payload.jobs ?? [])
+      .map(normalizeJob)
+      .filter((job) => job.id)
+      .map((job) => enrichJob(job, now));
+
+    return sortJobs(filterActiveJobs(jobs, now));
+  } catch (error) {
+    console.error("[jobs] Falling back to static data:", error);
+    return sortJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+  }
+}
