@@ -6,8 +6,11 @@ export type JobCategory =
   | "Design"
   | "Growth"
   | "Marketing"
-  | "HR"
-  | "Operations";
+  | "Sales"
+  | "Content"
+  | "Media"
+  | "Operations"
+  | "HR";
 
 export type Job = {
   id: string;
@@ -25,6 +28,7 @@ export type Job = {
   initials: string;
   accent: string;
   active?: boolean | string;
+  isSample?: boolean;
 };
 
 export const JOB_CATEGORIES: JobCategory[] = [
@@ -33,11 +37,14 @@ export const JOB_CATEGORIES: JobCategory[] = [
   "Design",
   "Growth",
   "Marketing",
-  "HR",
+  "Sales",
+  "Content",
+  "Media",
   "Operations",
+  "HR",
 ];
 
-const DEFAULT_TTL_DAYS = 10;
+const DEFAULT_TTL_DAYS = 15;
 const REVALIDATE_SECONDS = 300;
 
 type RawJob = Partial<Job> & Record<string, unknown>;
@@ -137,10 +144,59 @@ export function formatPostedAt(publishedAt: string, now = new Date()): string {
 }
 
 function normalizeCategory(value: unknown): JobCategory {
-  const category = String(value ?? "Engineering").trim();
-  if ((JOB_CATEGORIES as string[]).includes(category)) {
-    return category as JobCategory;
+  const raw = String(value ?? "").trim();
+
+  if (!raw) {
+    return "Engineering";
   }
+
+  const lower = raw.toLowerCase();
+
+  const aliases: Record<string, JobCategory> = {
+    "data": "Engineering",
+    "analytics": "Engineering",
+    "multiple": "Engineering",
+    "engineering / ai": "Engineering",
+    "engineering / crypto": "Engineering",
+    "engineering / sales": "Engineering",
+    "product / engineering": "Engineering",
+    "product marketing": "Marketing",
+    "gtm / growth": "Growth",
+    "growth / marketing": "Growth",
+    "marketing / growth": "Growth",
+    "marketing / ugc": "Marketing",
+    "marketing / creative": "Marketing",
+    "marketing / community": "Marketing",
+    "content / writing": "Content",
+    "content / editing": "Content",
+    "content / marketing": "Content",
+    "content / strategy": "Content",
+    "account management": "Sales",
+    "sales / partnerships": "Sales",
+    "sales / bizdev": "Sales",
+    "design / brand": "Design",
+    "design / motion": "Design",
+    "design engineering": "Design",
+    "operations / founder's office": "Operations",
+    "support / operations": "Operations",
+    "ops / founder's office": "Operations",
+    "program management / intern": "Operations",
+    "founder's office": "Operations",
+    "support": "Operations",
+  };
+
+  if (aliases[lower]) {
+    return aliases[lower];
+  }
+
+  const canonical = (JOB_CATEGORIES as string[]).find((c) =>
+    lower.startsWith(c.toLowerCase()),
+  );
+
+  if (canonical) {
+    return canonical as JobCategory;
+  }
+
   return "Engineering";
 }
 
@@ -161,6 +217,7 @@ export function normalizeJob(raw: RawJob): Job {
     initials: String(raw.initials ?? "").trim(),
     accent: String(raw.accent ?? "#b56a52").trim() || "#b56a52",
     active: raw.active,
+    isSample: Boolean(raw.isSample),
   };
 }
 
@@ -188,8 +245,19 @@ function sortJobs(jobs: Job[]): Job[] {
   return [...jobs].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
 }
 
+function dedupeJobs(jobs: Job[]): Job[] {
+  const seen = new Set<string>();
+  return sortJobs(jobs).filter((job) => {
+    if (seen.has(job.id)) {
+      return false;
+    }
+    seen.add(job.id);
+    return true;
+  });
+}
+
 export function pickFeaturedJobs(jobs: Job[], now = new Date()): Job[] {
-  const activeJobs = sortJobs(filterActiveJobs(jobs, now));
+  const activeJobs = dedupeJobs(filterActiveJobs(jobs, now));
   if (activeJobs.length === 0) {
     return [];
   }
@@ -214,7 +282,7 @@ export async function fetchJobs(now = new Date()): Promise<Job[]> {
   const apiUrl = process.env.JOBS_API_URL?.trim();
 
   if (!apiUrl) {
-    return sortJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+    return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
   }
 
   try {
@@ -232,9 +300,13 @@ export async function fetchJobs(now = new Date()): Promise<Job[]> {
       .filter((job) => job.id)
       .map((job) => enrichJob(job, now));
 
-    return sortJobs(filterActiveJobs(jobs, now));
+    if (jobs.length) {
+      return dedupeJobs(filterActiveJobs(jobs, now));
+    }
+
+    return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
   } catch (error) {
     console.error("[jobs] Falling back to static data:", error);
-    return sortJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+    return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
   }
 }

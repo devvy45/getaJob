@@ -1,0 +1,22 @@
+{
+  "name": "getajob",
+  "colors": {
+    "ink": "#27211F",
+    "paper": "#F3EADC",
+    "ember": "#F36D45",
+    "light_ember": "#FF9674"
+  },
+  "wordmark": {
+    "text": "getajob",
+    "font": "DM Sans",
+    "weight": 600,
+    "letter_spacing_em": -0.07,
+    "color": "#FF9674",
+    "effects": "none"
+  },
+  "fonts": {
+    "DM Sans": "https://fonts.google.com/specimen/DM+Sans",
+    "Instrument Serif": "https://fonts.google.com/specimen/Instrument+Serif",
+    "DM Mono": "https://fonts.google.com/specimen/DM+Mono"
+  }
+}

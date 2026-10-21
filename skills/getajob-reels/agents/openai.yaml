@@ -1,0 +1,4 @@
+interface:
+  display_name: "Getajob Reels"
+  short_description: "Edit branded career reels from podcast clips"
+  default_prompt: "Use $getajob-reels to turn these clips and voiceovers into a branded Instagram reel using the approved editing style."

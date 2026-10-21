@@ -6,7 +6,7 @@
  */
 
 var SHEET_NAME = "Jobs";
-var DEFAULT_TTL_DAYS = 10;
+var DEFAULT_TTL_DAYS = 15;
 
 var HEADER_MAP = {
   id: "id",

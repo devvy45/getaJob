@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "getajob — High signal roles",
-  description: "Curated high-growth roles from early teams and recently funded startups.",
+  title: "getajob — roles and proof-first talent",
+  description: "Direct founder-posted roles and public proof-of-work profiles for early-stage teams.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

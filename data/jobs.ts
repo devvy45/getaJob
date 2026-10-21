@@ -12,6 +12,7 @@ export type Job = {
   sourceUrl: string;
   initials: string;
   accent: string;
+  isSample?: boolean;
 };
 
 // This is the only file you need to edit to add, update, or remove jobs for now.
@@ -26,10 +27,11 @@ export const jobs: Job[] = [
     location: "San Francisco / Remote",
     excerpt: "We’re looking for an early engineer who wants to build creative tools used by millions of people.",
     postedAt: "2d ago",
-    publishedAt: "2026-08-24",
-    sourceUrl: "#",
+    publishedAt: "",
+    sourceUrl: "https://www.krea.ai/careers",
     initials: "VP",
     accent: "#d56e53",
+    isSample: true,
   },
   {
     id: "vercel-devex",
@@ -41,10 +43,11 @@ export const jobs: Job[] = [
     location: "Remote",
     excerpt: "We’re looking for someone who cares deeply about making developers faster and more confident.",
     postedAt: "3d ago",
-    publishedAt: "2026-08-23",
-    sourceUrl: "#",
+    publishedAt: "",
+    sourceUrl: "https://vercel.com/careers",
     initials: "LR",
     accent: "#8f6759",
+    isSample: true,
   },
   {
     id: "posthog-product-engineer",
@@ -56,10 +59,11 @@ export const jobs: Job[] = [
     location: "Remote",
     excerpt: "Join a small product team working on tools that help engineers understand their users.",
     postedAt: "5d ago",
-    publishedAt: "2026-08-21",
-    sourceUrl: "#",
+    publishedAt: "",
+    sourceUrl: "https://posthog.com/careers",
     initials: "JH",
     accent: "#bd6144",
+    isSample: true,
   },
   {
     id: "razorpay-product-manager",
@@ -71,25 +75,11 @@ export const jobs: Job[] = [
     location: "Bengaluru",
     excerpt: "We’re hiring a product thinker to take ambitious new ideas from zero to one.",
     postedAt: "6d ago",
-    publishedAt: "2026-08-20",
-    sourceUrl: "#",
+    publishedAt: "",
+    sourceUrl: "https://razorpay.com/jobs/",
     initials: "RS",
     accent: "#de865a",
-  },
-  {
-    id: "clay-growth-lead",
-    personName: "Kareem Amin",
-    personHeadline: "Co-founder at Clay",
-    company: "Clay",
-    role: "Growth Lead",
-    category: "Growth",
-    location: "New York / Remote",
-    excerpt: "We’re looking for a creative operator to help a fast-growing product reach its next chapter.",
-    postedAt: "7d ago",
-    publishedAt: "2026-08-19",
-    sourceUrl: "#",
-    initials: "KA",
-    accent: "#a65b48",
+    isSample: true,
   },
 ];
 

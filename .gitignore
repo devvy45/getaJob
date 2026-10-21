@@ -38,3 +38,9 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Local build caches and one-off Google Sheets import outputs
+tsconfig.tsbuildinfo
+/scripts/google-sheets/cleaned-jobs.csv
+/scripts/google-sheets/new-batch.csv
+/scripts/google-sheets/new-batch.tsv
