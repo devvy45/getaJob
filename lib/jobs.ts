@@ -1,3 +1,4 @@
+import { getRequestExecutionContext } from "vinext/shims/request-context";
 import { fallbackJobs } from "../data/jobs";
 
 export type JobCategory =
@@ -45,7 +46,6 @@ export const JOB_CATEGORIES: JobCategory[] = [
 ];
 
 const DEFAULT_TTL_DAYS = 15;
-const REVALIDATE_SECONDS = 300;
 
 type RawJob = Partial<Job> & Record<string, unknown>;
 
@@ -278,35 +278,103 @@ export function pickFeaturedJobs(jobs: Job[], now = new Date()): Job[] {
   return shuffled.slice(0, count);
 }
 
-export async function fetchJobs(now = new Date()): Promise<Job[]> {
-  const apiUrl = process.env.JOBS_API_URL?.trim();
+// --- Sheet cache -----------------------------------------------------------
+// The Google Apps Script endpoint takes 2–5s per call. Visitors should never
+// wait on it, so we keep the last good response in Cloudflare's shared cache
+// (shared by every Worker in a data center) plus a copy in this Worker's memory.
+// Fresh for 5 minutes; after that we serve the saved copy instantly and refresh
+// it in the background.
+const FRESH_MS = 5 * 60 * 1000;
+const KEEP_SECONDS = 7 * 24 * 60 * 60;
+const SHEET_TIMEOUT_MS = 10_000;
+const CACHE_KEY = "https://cache.trygetajob.com/jobs-v1";
 
-  if (!apiUrl) {
-    return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
-  }
+type CachedSheet = { fetchedAt: number; jobs: RawJob[] };
 
+let memoryCopy: CachedSheet | null = null;
+let refreshing: Promise<CachedSheet | null> | null = null;
+
+function sharedCache(): Cache | null {
+  const store = (globalThis as unknown as { caches?: { default?: Cache } }).caches;
+  return store?.default ?? null;
+}
+
+async function readSharedCopy(): Promise<CachedSheet | null> {
   try {
-    const response = await fetch(apiUrl, {
-      next: { revalidate: REVALIDATE_SECONDS },
-    });
+    const hit = await sharedCache()?.match(CACHE_KEY);
+    return hit ? ((await hit.json()) as CachedSheet) : null;
+  } catch {
+    return null;
+  }
+}
 
+async function loadFromSheet(apiUrl: string): Promise<CachedSheet | null> {
+  try {
+    const response = await fetch(apiUrl, { signal: AbortSignal.timeout(SHEET_TIMEOUT_MS) });
     if (!response.ok) {
       throw new Error(`Jobs API responded with ${response.status}`);
     }
-
     const payload = (await response.json()) as { jobs?: RawJob[] };
-    const jobs = (payload.jobs ?? [])
-      .map(normalizeJob)
-      .filter((job) => job.id)
-      .map((job) => enrichJob(job, now));
-
-    if (jobs.length) {
-      return dedupeJobs(filterActiveJobs(jobs, now));
-    }
-
-    return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+    const entry: CachedSheet = { fetchedAt: Date.now(), jobs: payload.jobs ?? [] };
+    memoryCopy = entry;
+    await sharedCache()?.put(
+      CACHE_KEY,
+      new Response(JSON.stringify(entry), {
+        headers: { "content-type": "application/json", "cache-control": `public, max-age=${KEEP_SECONDS}` },
+      }),
+    ).catch(() => undefined);
+    return entry;
   } catch (error) {
-    console.error("[jobs] Falling back to static data:", error);
-    return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+    console.error("[jobs] Sheet fetch failed:", error);
+    return null;
   }
+}
+
+function refreshInBackground(apiUrl: string): Promise<CachedSheet | null> {
+  refreshing ??= loadFromSheet(apiUrl).finally(() => {
+    refreshing = null;
+  });
+  // Keep the Worker alive until the refresh lands, without making the visitor wait.
+  getRequestExecutionContext()?.waitUntil(refreshing);
+  return refreshing;
+}
+
+async function getSheetJobs(apiUrl: string): Promise<RawJob[] | null> {
+  let copy = memoryCopy;
+  if (!copy || Date.now() - copy.fetchedAt > FRESH_MS) {
+    const shared = await readSharedCopy();
+    if (shared && (!copy || shared.fetchedAt > copy.fetchedAt)) {
+      copy = memoryCopy = shared;
+    }
+  }
+
+  if (copy) {
+    if (Date.now() - copy.fetchedAt > FRESH_MS) {
+      void refreshInBackground(apiUrl);
+    }
+    return copy.jobs;
+  }
+
+  // Nothing saved anywhere yet (first visit in this data center): wait once.
+  const fresh = await refreshInBackground(apiUrl);
+  return fresh?.jobs ?? null;
+}
+
+function fallback(now: Date): Job[] {
+  return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+}
+
+export async function fetchJobs(now = new Date()): Promise<Job[]> {
+  const apiUrl = process.env.JOBS_API_URL?.trim();
+  if (!apiUrl) {
+    return fallback(now);
+  }
+
+  const raw = await getSheetJobs(apiUrl);
+  const jobs = (raw ?? [])
+    .map(normalizeJob)
+    .filter((job) => job.id)
+    .map((job) => enrichJob(job, now));
+
+  return jobs.length ? dedupeJobs(filterActiveJobs(jobs, now)) : fallback(now);
 }
