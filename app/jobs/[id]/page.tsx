@@ -1,77 +1,75 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { fetchJobs } from "../../../lib/jobs";
 import styles from "../jobs.module.css";
 import ShareButton from "../../share-button";
+import SiteNav from "../../components/site-nav";
 
-export default async function JobDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+type Params = Promise<{ id: string }>;
+
+async function getJob(id: string) {
   const jobs = await fetchJobs();
-  const job = jobs.find((j) => j.id === params.id);
+  return { job: jobs.find((j) => j.id === id), jobs };
+}
 
-  if (!job) {
-    notFound();
-  }
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { id } = await params;
+  const { job } = await getJob(id);
+  if (!job) return { title: "Role not found" };
+  return { title: `${job.role} at ${job.company}`, description: job.excerpt };
+}
+
+export default async function JobDetailPage({ params }: { params: Params }) {
+  const { id } = await params;
+  const { job, jobs } = await getJob(id);
+  if (!job) notFound();
+
+  const more = jobs.filter((j) => j.id !== job.id).slice(0, 4);
 
   return (
+    <>
+    <SiteNav />
     <main className={styles.page}>
-      <nav className={styles.nav} aria-label="Primary navigation">
-        <a className={styles.logo} href="/">getajob</a>
-        <div className={styles.navLinks}>
-          <a className={styles.active} href="/jobs">Jobs</a>
-          <a href="/talent">Talent</a>
-        </div>
-      </nav>
-      <div style={{ paddingBottom: 47, fontSize: 14, color: "#bda596" }}>
-        <a href="/jobs" style={{ color: "#ff9674" }}>← All jobs</a>
-      </div>
-      <div style={{ maxWidth: 720 }}>
-        <article className={styles.card} style={{ minHeight: 0 }}>
+
+      <a className={styles.back} href="/jobs"><span aria-hidden="true">←</span> All jobs</a>
+
+      <div className={styles.detail}>
+        <article className={styles.detailMain} itemScope itemType="https://schema.org/JobPosting">
           <div className={styles.person}>
-            <div className={styles.avatar} style={{ backgroundColor: job.accent }}>
-              {job.initials}
-            </div>
-            <div>
-              <h2>{job.personName}</h2>
-              <p>{job.personHeadline}</p>
-              <span>{job.postedAt}</span>
-            </div>
-            <a
-              className={styles.corner}
-              href={job.sourceUrl}
-              aria-label={`Open ${job.personName}'s original post`}
-            >
-              ↗
-            </a>
+            <div className={styles.avatar} style={{ backgroundColor: job.accent }} aria-hidden="true">{job.initials}</div>
+            <div className={styles.personInfo}><h2>{job.personName}</h2><p>{job.personHeadline}</p></div>
+            <time className={styles.posted}>{job.postedAt}</time>
           </div>
-          <div className={styles.rule} />
           <div className={styles.role}>
-            <p className={styles.roleLabel}>Hiring for</p>
-            <h3>{job.role}</h3>
-            <p className={styles.meta}>
-              {job.company} · {job.location} · {job.category}
-            </p>
+            <h3 itemProp="title">{job.role}</h3>
+            <p className={styles.meta}><span>{job.company}</span><span>{job.location}</span><span>{job.category}</span></p>
           </div>
-          <p className={styles.excerpt}>{job.excerpt}</p>
-          <div className={styles.cardActions}>
-            <a className={styles.action} href={job.sourceUrl}>
-              View original post <span>↗</span>
-            </a>
-            <ShareButton
-              jobId={job.id}
-              className={styles.share}
-              company={job.company}
-              role={job.role}
-            />
+          <p className={styles.excerpt} itemProp="description">{job.excerpt}</p>
+          <div className={styles.detailActions}>
+            <a className={styles.apply} href={job.sourceUrl} target="_blank" rel="noopener noreferrer">Apply on the original post <span aria-hidden="true">↗</span></a>
+            <ShareButton jobId={job.id} className={styles.share} company={job.company} role={job.role} />
           </div>
+          <p className={styles.detailNote}>You&apos;ll apply directly with {job.personName.split(" ")[0]}. getajob never sits in between.</p>
         </article>
+
+        {more.length > 0 && (
+          <aside className={styles.more} aria-label="More open roles">
+            <h4>More open roles</h4>
+            <ul>
+              {more.map((j) => (
+                <li key={j.id}><a href={`/jobs/${j.id}`}><strong>{j.role}</strong><span>{j.company} · {j.location}</span></a></li>
+              ))}
+            </ul>
+            <a className={styles.moreAll} href="/jobs">See all {jobs.length} roles</a>
+          </aside>
+        )}
       </div>
+
       <footer className={styles.footer}>
         <span>getajob</span>
-        <p>High signal roles for asymmetric career bets.</p>
+        <p>High signal roles. Proof-first talent.</p>
       </footer>
     </main>
+    </>
   );
 }

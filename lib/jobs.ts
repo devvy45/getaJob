@@ -1,5 +1,4 @@
 import { getRequestExecutionContext } from "vinext/shims/request-context";
-import { fallbackJobs } from "../data/jobs";
 
 export type JobCategory =
   | "Engineering"
@@ -45,7 +44,8 @@ export const JOB_CATEGORIES: JobCategory[] = [
   "HR",
 ];
 
-const DEFAULT_TTL_DAYS = 15;
+/** Roles without an explicit expiry are removed this many days after they were posted. */
+export const DEFAULT_TTL_DAYS = 15;
 
 type RawJob = Partial<Job> & Record<string, unknown>;
 
@@ -360,8 +360,10 @@ async function getSheetJobs(apiUrl: string): Promise<RawJob[] | null> {
   return fresh?.jobs ?? null;
 }
 
-function fallback(now: Date): Job[] {
-  return dedupeJobs(filterActiveJobs(fallbackJobs.map((job) => enrichJob(job, now)), now));
+// No sample or placeholder roles: if the Sheet has nothing, the site says so.
+function fallback(_now: Date): Job[] {
+  void _now;
+  return [];
 }
 
 export async function fetchJobs(now = new Date()): Promise<Job[]> {
@@ -377,4 +379,27 @@ export async function fetchJobs(now = new Date()): Promise<Job[]> {
     .map((job) => enrichJob(job, now));
 
   return jobs.length ? dedupeJobs(filterActiveJobs(jobs, now)) : fallback(now);
+}
+
+/** Numbers shown on the homepage, all derived from the live roles. */
+export function jobStats(jobs: Job[], now = new Date()) {
+  const weekAgo = startOfDay(now).getTime() - 7 * 86_400_000;
+  const thisWeek = jobs.filter((job) => {
+    const published = parseDate(job.publishedAt);
+    return published ? published.getTime() >= weekAgo : false;
+  }).length;
+  const sources = new Set<string>();
+  for (const job of jobs) {
+    try {
+      const host = new URL(job.sourceUrl).hostname.replace(/^www\./, "");
+      if (host === "x.com" || host === "twitter.com") sources.add("X");
+      else if (host.endsWith("linkedin.com")) sources.add("LinkedIn");
+      else sources.add("careers pages");
+    } catch {
+      // Ignore malformed links.
+    }
+  }
+  const categories = JOB_CATEGORIES.filter((category) => jobs.some((job) => job.category === category));
+  const locations = [...new Set(jobs.map((job) => job.location.split("/")[0].trim()).filter(Boolean))];
+  return { total: jobs.length, thisWeek, sources: [...sources], categories, locations, ttlDays: DEFAULT_TTL_DAYS };
 }

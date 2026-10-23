@@ -22,13 +22,15 @@ npm test
 Create `.env.local` for local-only credentials:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-publishable-key
+VITE_SUPABASE_URL=your-supabase-url
+VITE_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
+VITE_GOOGLE_CLIENT_ID=your-google-oauth-client-id
 GEMINI_API_KEY=your-gemini-api-key
 JOBS_API_URL=your-google-apps-script-url
 ```
 
-- Supabase stores POW profiles and profile images.
+- Supabase stores POW profiles, photos, and (privately) résumés and phone numbers.
+- `VITE_GOOGLE_CLIENT_ID` turns on Google's own sign-in popup, so Google shows trygetajob.com instead of the Supabase address. The `VITE_` variables are baked in at build time, so set them as **build** variables on Cloudflare too.
 - Gemini pre-fills editable profile fields from a PDF résumé.
 - Google Apps Script lets the Jobs page read your managed Google Sheet. If this is not set, the site uses the small static fallback in `data/jobs.ts`.
 
